@@ -50,6 +50,23 @@ gh extension install .
 gh omens
 ```
 
+### Reinstall note
+
+If you installed an earlier version of the extension and see this error:
+
+```text
+env: bash\r: No such file or directory
+```
+
+remove and reinstall the extension:
+
+```bash
+gh extension remove gh-omens
+gh extension install sandermvanvliet-stack/gh-omens
+```
+
+The repo now includes `.gitattributes` to force LF line endings for the shell scripts, which avoids that issue on systems with Git `core.autocrlf=true`.
+
 ## Requirements
 
 You just need:
