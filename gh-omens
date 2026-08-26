@@ -8,21 +8,21 @@ DOWN_RESPONSES=(
   "github is likely to tank"
   "yeah nah, github looks a bit cooked"
   "the vibes are bad: github could absolutely eat dirt in the next hour"
-  "crystal ball says: maybe don't bet the farm on github right now"
+  "the omens say: maybe don't bet the farm on github right now"
   "i wouldn't trust actions with my life in the next hour"
   "there's a decent chance github decides to become a suggestion"
   "strewth, github's looking cactus for the next hour"
   "deadset, actions might chuck a sickie"
   "reckon github's about to go full bin chicken"
   "bad juju, mate - i'd postpone anything spicy"
-  "oi, the crystal ball reckons github could have a proper mare"
+  "oi, the omens reckon github could have a proper mare"
   "she's wobblier than a bunnings trolley with one cooked wheel"
 )
 
 OK_RESPONSES=(
   "nah she'll be right"
   "looks fine mate, send it"
-  "crystal ball says: github should probably keep the lights on"
+  "the omens say: github should probably keep the lights on"
   "vibes are acceptable: github looks all right for now"
   "seems safe enough to annoy github actions"
   "all signs point to github behaving itself for the next hour"
@@ -35,13 +35,28 @@ OK_RESPONSES=(
 )
 
 CLOUDY_RESPONSES=(
-  "the crystal ball is cloudy: couldn't reach githubstatus.com"
+  "the omens are murky: couldn't reach githubstatus.com"
   "can't tell, mate - the status oracle isn't answering"
   "the omen service is down, which is not ideal for predictions"
-  "crystal ball's foggier than a pub window in july"
+  "the omens are foggier than a pub window in july"
   "can't get a read, mate - the status oracle's gone bush"
   "status page is giving me absolutely nothing but flies"
 )
+
+show_help() {
+  cat <<'EOF'
+Usage:
+  gh omens
+  gh omens --help
+  ./gh-omens
+  ./omens
+
+A joke GitHub CLI extension that consults githubstatus.com and reads the omens
+for whether GitHub is likely to tank in the next hour.
+
+This is absolutely not a real predictor.
+EOF
+}
 
 pick_random() {
   local array_name="$1"
@@ -63,7 +78,7 @@ fetch_json() {
   if command -v curl >/dev/null 2>&1; then
     curl -fsSL \
       --max-time "$TIMEOUT_SECONDS" \
-      -A "github-crystal-ball/1.0" \
+      -A "gh-omens/1.0" \
       -H "Accept: application/json" \
       "$url"
     return $?
@@ -73,7 +88,7 @@ fetch_json() {
     wget -qO- \
       --timeout="$TIMEOUT_SECONDS" \
       --tries=1 \
-      --user-agent="github-crystal-ball/1.0" \
+      --user-agent="gh-omens/1.0" \
       --header="Accept: application/json" \
       "$url"
     return $?
@@ -154,11 +169,18 @@ join_reasons() {
 
 main() {
   local status_json incidents_json components_json active_maintenance_json upcoming_maintenance_json
-  local indicator description description_lc score verdict message
+  local indicator description description_lc indicator_points score verdict message
   local impacts impact incident_count incident_score statuses status bad_components component_score
   local active_maintenance_count upcoming_maintenance_count maintenance_count maintenance_score
   local reason_text
   local -a reasons
+
+  case "${1:-}" in
+    -h|--help|help)
+      show_help
+      exit 0
+      ;;
+  esac
 
   status_json=$(fetch_json "$SUMMARY_URL_BASE/status.json") || {
     pick_random CLOUDY_RESPONSES
@@ -187,6 +209,7 @@ main() {
   indicator=$(extract_indicator "$status_json")
   description=$(extract_description "$status_json")
   description_lc=$(printf '%s' "$description" | tr '[:upper:]' '[:lower:]')
+  indicator_points=$(indicator_score "$indicator")
 
   incident_count=0
   incident_score=0
@@ -228,8 +251,8 @@ EOF_COMPONENTS
     maintenance_score=2
   fi
 
-  score=$((score + $(indicator_score "$indicator")))
-  if [ "$(indicator_score "$indicator")" -gt 0 ]; then
+  score=$((score + indicator_points))
+  if [ "$indicator_points" -gt 0 ]; then
     if [ -n "$description_lc" ]; then
       reasons+=("overall status is $description_lc")
     else

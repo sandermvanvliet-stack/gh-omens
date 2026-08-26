@@ -1,12 +1,18 @@
-# github-crystal-ball
+# gh-omens
 
-A joke script that checks `githubstatus.com` and gives you a wildly unqualified prediction about whether GitHub is likely to fall over in the next hour.
+A joke script and GitHub CLI extension that checks `githubstatus.com` and reads the omens on whether GitHub is likely to fall over in the next hour.
 
-## Usage
+## Standalone usage
 
 ```bash
-chmod +x ./github-crystal-ball
-./github-crystal-ball
+chmod +x ./gh-omens ./omens
+./omens
+```
+
+or run the main script directly:
+
+```bash
+./gh-omens
 ```
 
 Example output:
@@ -17,15 +23,41 @@ risk score: 0
 because: githubstatus.com says everything is operational
 ```
 
-## Requirements
+## GitHub CLI extension usage
 
-It is now a Bash script.
+The extension executable is:
+
+- `gh-omens`
+
+When installed as a GitHub CLI extension, you run it as:
+
+```bash
+gh omens
+```
+
+Install it from GitHub with:
+
+```bash
+gh extension install <owner>/gh-omens
+```
+
+For local testing, use a clone or directory named `gh-omens`:
+
+```bash
+git clone <repo-url> gh-omens
+cd gh-omens
+gh extension install .
+gh omens
+```
+
+## Requirements
 
 You just need:
 
 - `bash`
 - either `curl` or `wget`
 - standard shell tools like `grep`, `sed`, `awk`, and `tr`
+- optionally `gh` if you want to run it as an extension
 
 ## How it works
 
@@ -48,4 +80,4 @@ If the score is `4` or higher, it declares that GitHub is likely to tank.
 
 It also picks a random response from a pool of normal and extra-chaotic Aussie lines.
 
-This is a gimmick, not a predictor. Please do not use this as the basis for life decisions, trading strategies, or release trains.
+This is a gimmick, not a predictor. Please do not use this as the basis for life decisions, trading strategies, release trains, or spiritual guidance.
