@@ -1,0 +1,279 @@
+#!/usr/bin/env bash
+
+SUMMARY_URL_BASE="https://www.githubstatus.com/api/v2"
+TIMEOUT_SECONDS=5
+VERDICT_THRESHOLD=4
+
+DOWN_RESPONSES=(
+  "github is likely to tank"
+  "yeah nah, github looks a bit cooked"
+  "the vibes are bad: github could absolutely eat dirt in the next hour"
+  "crystal ball says: maybe don't bet the farm on github right now"
+  "i wouldn't trust actions with my life in the next hour"
+  "there's a decent chance github decides to become a suggestion"
+  "strewth, github's looking cactus for the next hour"
+  "deadset, actions might chuck a sickie"
+  "reckon github's about to go full bin chicken"
+  "bad juju, mate - i'd postpone anything spicy"
+  "oi, the crystal ball reckons github could have a proper mare"
+  "she's wobblier than a bunnings trolley with one cooked wheel"
+)
+
+OK_RESPONSES=(
+  "nah she'll be right"
+  "looks fine mate, send it"
+  "crystal ball says: github should probably keep the lights on"
+  "vibes are acceptable: github looks all right for now"
+  "seems safe enough to annoy github actions"
+  "all signs point to github behaving itself for the next hour"
+  "too easy, github looks steady as"
+  "green lights and good vibes, cobber"
+  "crack on, looks less dodgy than usual"
+  "the ute is loaded, the esky is cold, github seems good to go"
+  "not hearing any kookaburra-level alarms"
+  "yeah nah, i reckon she'll hold together"
+)
+
+CLOUDY_RESPONSES=(
+  "the crystal ball is cloudy: couldn't reach githubstatus.com"
+  "can't tell, mate - the status oracle isn't answering"
+  "the omen service is down, which is not ideal for predictions"
+  "crystal ball's foggier than a pub window in july"
+  "can't get a read, mate - the status oracle's gone bush"
+  "status page is giving me absolutely nothing but flies"
+)
+
+pick_random() {
+  local array_name="$1"
+  local count index value
+
+  eval "count=\${#$array_name[@]}"
+  if [ "$count" -eq 0 ]; then
+    return 1
+  fi
+
+  index=$((RANDOM % count))
+  eval "value=\${$array_name[$index]}"
+  printf '%s\n' "$value"
+}
+
+fetch_json() {
+  local url="$1"
+
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL \
+      --max-time "$TIMEOUT_SECONDS" \
+      -A "github-crystal-ball/1.0" \
+      -H "Accept: application/json" \
+      "$url"
+    return $?
+  fi
+
+  if command -v wget >/dev/null 2>&1; then
+    wget -qO- \
+      --timeout="$TIMEOUT_SECONDS" \
+      --tries=1 \
+      --user-agent="github-crystal-ball/1.0" \
+      --header="Accept: application/json" \
+      "$url"
+    return $?
+  fi
+
+  return 127
+}
+
+compact_json() {
+  tr -d '\n\r'
+}
+
+extract_indicator() {
+  printf '%s' "$1" | compact_json | sed -n 's/.*"indicator"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1
+}
+
+extract_description() {
+  printf '%s' "$1" | compact_json | sed -n 's/.*"description"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1
+}
+
+extract_impacts() {
+  printf '%s' "$1" | compact_json | grep -o '"impact"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"impact"[[:space:]]*:[[:space:]]*"\([^"]*\)"/\1/'
+}
+
+extract_component_statuses() {
+  printf '%s' "$1" | compact_json | grep -o '"status"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"status"[[:space:]]*:[[:space:]]*"\([^"]*\)"/\1/'
+}
+
+count_maintenances() {
+  printf '%s' "$1" | compact_json | grep -o '"scheduled_for"[[:space:]]*:' | awk 'END { print NR + 0 }'
+}
+
+indicator_score() {
+  case "$1" in
+    none) echo 0 ;;
+    minor) echo 2 ;;
+    major) echo 4 ;;
+    critical) echo 6 ;;
+    *) echo 0 ;;
+  esac
+}
+
+incident_bonus() {
+  case "$1" in
+    none) echo 0 ;;
+    minor) echo 1 ;;
+    major) echo 2 ;;
+    critical) echo 3 ;;
+    *) echo 0 ;;
+  esac
+}
+
+component_penalty() {
+  case "$1" in
+    operational) echo 0 ;;
+    degraded_performance) echo 1 ;;
+    partial_outage) echo 2 ;;
+    major_outage) echo 3 ;;
+    under_maintenance) echo 1 ;;
+    *) echo 1 ;;
+  esac
+}
+
+join_reasons() {
+  local joined=""
+  local reason
+
+  for reason in "$@"; do
+    if [ -n "$joined" ]; then
+      joined="$joined; $reason"
+    else
+      joined="$reason"
+    fi
+  done
+
+  printf '%s\n' "$joined"
+}
+
+main() {
+  local status_json incidents_json components_json active_maintenance_json upcoming_maintenance_json
+  local indicator description description_lc score verdict message
+  local impacts impact incident_count incident_score statuses status bad_components component_score
+  local active_maintenance_count upcoming_maintenance_count maintenance_count maintenance_score
+  local reason_text
+  local -a reasons
+
+  status_json=$(fetch_json "$SUMMARY_URL_BASE/status.json") || {
+    pick_random CLOUDY_RESPONSES
+    exit 1
+  }
+  incidents_json=$(fetch_json "$SUMMARY_URL_BASE/incidents/unresolved.json") || {
+    pick_random CLOUDY_RESPONSES
+    exit 1
+  }
+  components_json=$(fetch_json "$SUMMARY_URL_BASE/components.json") || {
+    pick_random CLOUDY_RESPONSES
+    exit 1
+  }
+  active_maintenance_json=$(fetch_json "$SUMMARY_URL_BASE/scheduled-maintenances/active.json") || {
+    pick_random CLOUDY_RESPONSES
+    exit 1
+  }
+  upcoming_maintenance_json=$(fetch_json "$SUMMARY_URL_BASE/scheduled-maintenances/upcoming.json") || {
+    pick_random CLOUDY_RESPONSES
+    exit 1
+  }
+
+  score=0
+  reasons=()
+
+  indicator=$(extract_indicator "$status_json")
+  description=$(extract_description "$status_json")
+  description_lc=$(printf '%s' "$description" | tr '[:upper:]' '[:lower:]')
+
+  incident_count=0
+  incident_score=0
+  impacts=$(extract_impacts "$incidents_json")
+  while IFS= read -r impact; do
+    [ -n "$impact" ] || continue
+    incident_count=$((incident_count + 1))
+    incident_score=$((incident_score + 2 + $(incident_bonus "$impact")))
+  done <<EOF_IMPACTS
+$impacts
+EOF_IMPACTS
+
+  if [ "$incident_score" -gt 6 ]; then
+    incident_score=6
+  fi
+
+  bad_components=0
+  component_score=0
+  statuses=$(extract_component_statuses "$components_json")
+  while IFS= read -r status; do
+    [ -n "$status" ] || continue
+    if [ "$status" != "operational" ]; then
+      bad_components=$((bad_components + 1))
+      component_score=$((component_score + $(component_penalty "$status")))
+    fi
+  done <<EOF_COMPONENTS
+$statuses
+EOF_COMPONENTS
+
+  if [ "$component_score" -gt 6 ]; then
+    component_score=6
+  fi
+
+  active_maintenance_count=$(count_maintenances "$active_maintenance_json")
+  upcoming_maintenance_count=$(count_maintenances "$upcoming_maintenance_json")
+  maintenance_count=$((active_maintenance_count + upcoming_maintenance_count))
+  maintenance_score=$maintenance_count
+  if [ "$maintenance_score" -gt 2 ]; then
+    maintenance_score=2
+  fi
+
+  score=$((score + $(indicator_score "$indicator")))
+  if [ "$(indicator_score "$indicator")" -gt 0 ]; then
+    if [ -n "$description_lc" ]; then
+      reasons+=("overall status is $description_lc")
+    else
+      reasons+=("overall status indicator is $indicator")
+    fi
+  fi
+
+  if [ "$incident_count" -gt 0 ]; then
+    score=$((score + incident_score))
+    reasons+=("$incident_count active incident(s)")
+  fi
+
+  if [ "$bad_components" -gt 0 ]; then
+    score=$((score + component_score))
+    reasons+=("$bad_components component(s) not operational")
+  fi
+
+  if [ "$maintenance_count" -gt 0 ]; then
+    score=$((score + maintenance_score))
+    reasons+=("$maintenance_count maintenance window(s) active or upcoming")
+  fi
+
+  if [ "$score" -ge "$VERDICT_THRESHOLD" ]; then
+    verdict="down"
+    message=$(pick_random DOWN_RESPONSES)
+  else
+    verdict="ok"
+    message=$(pick_random OK_RESPONSES)
+  fi
+
+  printf '%s\n' "$message"
+
+  if [ "${#reasons[@]}" -gt 0 ]; then
+    reason_text=$(join_reasons "${reasons[@]}")
+    printf 'risk score: %s\n' "$score"
+    printf 'because: %s\n' "$reason_text"
+  else
+    printf 'risk score: 0\n'
+    printf 'because: githubstatus.com says everything is operational\n'
+  fi
+
+  if [ "$verdict" = "down" ]; then
+    exit 0
+  fi
+}
+
+main "$@"
