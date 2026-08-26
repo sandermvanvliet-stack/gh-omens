@@ -38,13 +38,13 @@ gh omens
 Install it from GitHub with:
 
 ```bash
-gh extension install <owner>/gh-omens
+gh extension install sandermvanvliet-stack/gh-omens
 ```
 
 For local testing, use a clone or directory named `gh-omens`:
 
 ```bash
-git clone <repo-url> gh-omens
+git clone git@github.com:sandermvanvliet-stack/gh-omens.git gh-omens
 cd gh-omens
 gh extension install .
 gh omens
